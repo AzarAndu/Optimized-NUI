@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Spare Parts Search</title>
+
+<style>
+:root{
+  --bg:#f5f6fa;
+  --card:#ffffff;
+  --muted:#7d8794;
+  --primary:#007bff;
+  --text:#222;
+
+  --dark-bg:#1f2933;
+  --dark-card:#2d3748;
+  --dark-text:#e5e7eb;
+}
+
+body{
+  font-family: Arial, sans-serif;
+  margin:16px;
+  background:var(--bg);
+  color:var(--text);
+}
+
+body.dark{
+  background:var(--dark-bg);
+  color:var(--dark-text);
+}
+
+h2{
+  margin:0 0 8px 0;
+  font-size:28px;
+}
+
+#status{
+  color:var(--muted);
+  margin-bottom:8px;
+  font-size:14px;
+}
+
+/* ===== TOP BAR FIX (NO COLLAPSE) ===== */
+.topbar{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:nowrap;        /* 🔥 KEY FIX */
+  overflow-x:auto;         /* scroll instead of collapse */
+  margin-bottom:10px;
+}
+
+.topbar::-webkit-scrollbar{ display:none; }
+
+.btn{
+  padding:8px 12px;
+  border-radius:6px;
+  border:none;
+  cursor:pointer;
+  font-size:14px;
+  white-space:nowrap;
+}
+
+.btn-primary{
+  background:var(--primary);
+  color:#fff;
+}
+
+.btn-secondary{
+  background:#e5e7eb;
+}
+
+/* ===== SEARCH ===== */
+#search{
+  width:100%;
+  max-width:420px;
+  padding:10px;
+  border-radius:8px;
+  border:1px solid #ccc;
+  margin-bottom:10px;
+}
+
+/* ===== TABLE ===== */
+table{
+  width:100%;
+  border-collapse:collapse;
+  background:var(--card);
+  border-radius:8px;
+  overflow:hidden;
+  margin-top:10px;   /* prevents header push */
+}
+
+th,td{
+  padding:10px;
+  border-bottom:1px solid #e5e7eb;
+  text-align:left;
+  font-size:14px;
+}
+
+th{
+  background:#e6e9f0;
+}
+
+.compact th,
+.compact td{
+  padding:6px;
+  font-size:13px;
+}
+
+body.dark table{
+  background:var(--dark-card);
+}
+
+body.dark th{
+  background:#111827;
+  color:var(--dark-text);
+}
+
+/* ===== PAGINATION ===== */
+.pagination{
+  margin-top:14px;
+  display:flex;
+  gap:8px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+
+/* ===== MODAL ===== */
+.modal-backdrop{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.45);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:9999;
+}
+
+.modal{
+  width:640px;
+  max-width:94%;
+  background:var(--card);
+  border-radius:10px;
+  padding:14px;
+}
+
+#qr-reader{
+  height:300px;
+  background:#000;
+  color:#aaa;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:8px;
+}
+
+/* ===== MOBILE FIXES ===== */
+@media (max-width:600px){
+  h2{ font-size:22px; }
+  .btn{ padding:6px 10px; font-size:13px; }
+  #qr-reader{ height:240px; }
+}
+</style>
+</head>
+
+<body>
+
+<div id="status">Loading...</div>
+<h2>Spare Parts Search</h2>
+
+<div class="topbar">
+  <button id="btn-scan" class="btn btn-primary">📷 Scan</button>
+  <button id="btn-add" class="btn btn-primary">➕ Add Spare Part</button>
+  <button id="btn-refresh" class="btn btn-secondary">↻ Refresh</button>
+  <label>Dark <input type="checkbox" id="darkToggle"></label>
+  <label>Compact <input type="checkbox" id="compactToggle"></label>
+</div>
+
+<input id="search" type="text" placeholder="Search part / description / category / qty">
+
+<table>
+<thead>
+<tr>
+  <th>S.No</th>
+  <th>Item No</th>
+  <th>Part No</th>
+  <th>Description</th>
+  <th>Category</th>
+  <th>Qty</th>
+</tr>
+</thead>
+<tbody id="table-body"></tbody>
+</table>
+
+<div class="pagination">
+  <button id="prev" class="btn btn-secondary">Prev</button>
+  <span id="page-info"></span>
+  <button id="next" class="btn btn-secondary">Next</button>
+  <input id="jumpPage" type="number" placeholder="Page" style="width:70px">
+  <button id="jumpBtn" class="btn btn-secondary">Go</button>
+</div>
+
+<!-- Scanner -->
+<div id="qr-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <h3>Scanner</h3>
+    <div id="qr-reader">Camera preview</div>
+    <button id="qr-close" class="btn btn-secondary">Close</button>
+  </div>
+</div>
+
+<script>
+const SHEETDB_URL="https://sheetdb.io/api/v1/bvdsyfvkla1lv";
+const perPage=50;
+
+const tbody=document.getElementById("table-body");
+const search=document.getElementById("search");
+const pageInfo=document.getElementById("page-info");
+const statusEl=document.getElementById("status");
+
+let data=[],page=1;
+
+/* ===== FIX TRAILING SPACE KEYS ===== */
+const cleanKeys=o=>{
+  const r={};
+  for(const k in o) r[k.trim()]=o[k];
+  return r;
+};
+
+/* ===== THEME ===== */
+darkToggle.checked=localStorage.dark==="1";
+compactToggle.checked=localStorage.compact==="1";
+document.body.classList.toggle("dark",darkToggle.checked);
+document.body.classList.toggle("compact",compactToggle.checked);
+
+darkToggle.onchange=()=>{
+  document.body.classList.toggle("dark",darkToggle.checked);
+  localStorage.dark=darkToggle.checked?"1":"";
+};
+compactToggle.onchange=()=>{
+  document.body.classList.toggle("compact",compactToggle.checked);
+  localStorage.compact=compactToggle.checked?"1":"";
+};
+
+/* ===== LOAD ===== */
+async function load(){
+  statusEl.textContent="Fetching records...";
+  const res=await fetch(SHEETDB_URL);
+  const json=await res.json();
+
+  data=json.map(x=>{
+    const r=cleanKeys(x);
+    r._s=((r["item no"]||"")+" "+(r["part no"]||"")+" "+(r["description"]||"")+" "+(r["category"]||"")+" "+(r["qty"]||"")).toLowerCase();
+    return r;
+  });
+
+  statusEl.textContent=`Loaded ${data.length} records`;
+  render();
+}
+
+/* ===== RENDER ===== */
+function render(){
+  const q=search.value.toLowerCase().trim();
+  const f=q?data.filter(r=>r._s.includes(q)):data;
+
+  const pages=Math.max(1,Math.ceil(f.length/perPage));
+  if(page>pages) page=pages;
+
+  const slice=f.slice((page-1)*perPage,page*perPage);
+
+  tbody.innerHTML=slice.map((r,i)=>`
+    <tr>
+      <td>${(page-1)*perPage+i+1}</td>
+      <td>${r["item no"]||""}</td>
+      <td>${r["part no"]||""}</td>
+      <td>${r["description"]||""}</td>
+      <td>${r["category"]||""}</td>
+      <td>${r["qty"]||""}</td>
+    </tr>
+  `).join("");
+
+  pageInfo.textContent=`Page ${page} / ${pages}`;
+}
+
+/* ===== EVENTS ===== */
+search.oninput=()=>{page=1;render();};
+prev.onclick=()=>{if(page>1){page--;render();}};
+next.onclick=()=>{page++;render();};
+jumpBtn.onclick=()=>{const p=parseInt(jumpPage.value);if(p>0){page=p;render();}};
+btn-refresh.onclick=load;
+btn-add.onclick=()=>window.open("https://docs.google.com/forms/d/e/1FAIpQLSdYtCErU2QugovcnGLHkPOd_G0owZKzYadJdXXgaxwa9ZGegg/viewform","_blank");
+
+/* ===== SCANNER UI ONLY ===== */
+btn-scan.onclick=()=>qr-backdrop.style.display="flex";
+qr-close.onclick=()=>qr-backdrop.style.display="none";
+
+load();
+</script>
+
+</body>
+</html>
